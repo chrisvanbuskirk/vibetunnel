@@ -47,6 +47,9 @@ final class BunServer {
 
     var bindAddress: String = "127.0.0.1"
 
+    /// Original bind address before Tailscale override (for fallback)
+    private var originalBindAddress: String?
+
     /// The process identifier of the running server, if available
     var processIdentifier: Int32? {
         process?.processIdentifier
@@ -233,14 +236,15 @@ final class BunServer {
             vibetunnelArgs.append("--enable-tailscale-serve")
             logger.info("Tailscale Serve integration enabled")
 
-            // Force localhost binding for security when using Tailscale Serve
-            if bindAddress == "0.0.0.0" {
-                logger.warning("Overriding bind address to localhost for Tailscale Serve security")
-                // Update the vibetunnelArgs that were already set above
-                if let bindIndex = vibetunnelArgs.firstIndex(of: "--bind") {
-                    vibetunnelArgs[bindIndex + 1] = "127.0.0.1"
-                }
-            }
+            // Store original bind address for fallback
+            originalBindAddress = bindAddress
+
+            // Only force localhost binding if Tailscale Serve is actually working
+            // Don't restrict binding preemptively - let the fallback mechanism handle failures
+            logger.info("Tailscale Serve enabled, keeping original bind address: \(self.bindAddress)")
+        } else {
+            // Clear any stored original address when Tailscale is disabled
+            originalBindAddress = nil
         }
 
         // Create wrapper to run vibetunnel with parent death monitoring AND crash detection
@@ -432,14 +436,21 @@ final class BunServer {
         let authConfig = AuthConfig.current()
 
         // Build the dev server arguments
-        var effectiveBindAddress = bindAddress
+        let effectiveBindAddress = bindAddress
 
         // Check if Tailscale Serve is enabled and force localhost binding
         let tailscaleServeEnabled = UserDefaults.standard
             .bool(forKey: AppConstants.UserDefaultsKeys.tailscaleServeEnabled)
-        if tailscaleServeEnabled && bindAddress == "0.0.0.0" {
-            logger.warning("Overriding bind address to localhost for Tailscale Serve security")
-            effectiveBindAddress = "127.0.0.1"
+        if tailscaleServeEnabled {
+            // Store original bind address for potential fallback
+            originalBindAddress = bindAddress
+
+            // Keep original binding - don't restrict preemptively
+            // The fallback mechanism will handle failures
+            logger.info("Tailscale Serve enabled in dev mode, using bind address: \(self.bindAddress)")
+        } else {
+            // Clear any stored original address when Tailscale is disabled
+            originalBindAddress = nil
         }
 
         let devArgs = devServerManager.buildDevServerArguments(

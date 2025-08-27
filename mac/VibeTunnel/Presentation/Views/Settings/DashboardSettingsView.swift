@@ -1,6 +1,8 @@
 import os.log
 import SwiftUI
 
+private let logger = Logger(subsystem: "sh.vibetunnel.vibetunnel", category: "DashboardSettingsView")
+
 /// Dashboard settings tab for monitoring and status
 struct DashboardSettingsView: View {
     @AppStorage(AppConstants.UserDefaultsKeys.serverPort)
@@ -62,7 +64,8 @@ struct DashboardSettingsView: View {
             .task {
                 await updateStatuses()
             }
-            .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            .onReceive(Timer.publish(every: 15, on: .main, in: .common).autoconnect()) { _ in
+                // Reduced frequency to prevent UI flickering
                 Task {
                     await updateStatuses()
                 }
@@ -297,7 +300,7 @@ private struct ServerStatusSection: View {
                                         await serverManager.start()
                                     } catch {
                                         // Handle error - in a real implementation, you might show an alert
-                                        print("Failed to kill process: \(error)")
+                                        logger.error("Failed to kill process: \(error)")
                                     }
                                 }
                             }
