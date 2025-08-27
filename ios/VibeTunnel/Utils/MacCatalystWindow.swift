@@ -67,7 +67,7 @@
 
         private func applyWindowStyle(_ style: MacWindowStyle) {
             guard let window,
-                  let _ = window.nsWindow
+                  window.nsWindow != nil
             else {
                 logger.warning("Unable to access NSWindow - Dynamic framework not available")
                 return
