@@ -194,8 +194,17 @@ export class BufferSubscriptionService {
     }
 
     // Get auth token for WebSocket connection
+    // First try to get from auth client (normal auth flow)
     const currentUser = authClient.getCurrentUser();
-    const token = currentUser?.token;
+    let token = currentUser?.token;
+
+    // If no token from auth client, check localStorage (Tailscale auth flow)
+    if (!token && typeof window !== 'undefined') {
+      token =
+        localStorage.getItem('vibetunnel_auth_token') ||
+        localStorage.getItem('auth_token') ||
+        undefined;
+    }
 
     // Don't connect if we don't have a valid token (unless in no-auth mode)
     if (!token && !this.isNoAuthMode()) {

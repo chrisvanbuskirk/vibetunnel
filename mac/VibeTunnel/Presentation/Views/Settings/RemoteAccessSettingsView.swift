@@ -245,6 +245,8 @@ private struct TailscaleIntegrationSection: View {
 
     @AppStorage(AppConstants.UserDefaultsKeys.tailscaleServeEnabled)
     private var tailscaleServeEnabled = false
+    @AppStorage(AppConstants.UserDefaultsKeys.tailscaleFunnelEnabled)
+    private var tailscaleFunnelEnabled = false
     @Environment(TailscaleServeStatusService.self)
     private var tailscaleServeStatus
 
@@ -313,29 +315,75 @@ private struct TailscaleIntegrationSection: View {
                 } else if !tailscaleService.isRunning {
                     // Show Tailscale preferences even when not running
                     VStack(alignment: .leading, spacing: 12) {
-                        // Tailscale Serve toggle - always available when installed
-                        HStack {
-                            Toggle("Enable Tailscale Serve Integration", isOn: $tailscaleServeEnabled)
+                        // Single Tailscale toggle with access mode picker
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Enable Tailscale Integration", isOn: $tailscaleServeEnabled)
                                 .onChange(of: tailscaleServeEnabled) { _, newValue in
-                                    logger.info("Tailscale Serve integration \(newValue ? "enabled" : "disabled")")
+                                    logger.info("Tailscale integration \(newValue ? "enabled" : "disabled")")
                                     // Restart server to apply the new setting
                                     Task {
                                         await serverManager.restart()
                                     }
                                 }
 
-                            Spacer()
-
-                            // Show status when enabled but not running
                             if tailscaleServeEnabled {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "exclamationmark.triangle.fill")
-                                        .foregroundColor(.orange)
-                                    Text("Tailscale not running")
-                                        .font(.caption)
-                                        .foregroundColor(.orange)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // Access mode picker
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Access:")
+                                            .font(.callout)
+                                            .foregroundColor(.secondary)
+
+                                        Picker("", selection: $tailscaleFunnelEnabled) {
+                                            Text("Private (Tailnet only)").tag(false)
+                                            Text("Public (Internet)").tag(true)
+                                        }
+                                        .pickerStyle(.segmented)
+                                        .frame(maxWidth: 240)
+                                        .onChange(of: tailscaleFunnelEnabled) { _, newValue in
+                                            logger.warning("Tailscale access mode: \(newValue ? "PUBLIC" : "PRIVATE")")
+                                            // Force immediate UserDefaults synchronization
+                                            UserDefaults.standard.set(
+                                                newValue,
+                                                forKey: AppConstants.UserDefaultsKeys.tailscaleFunnelEnabled
+                                            )
+                                            UserDefaults.standard.synchronize()
+                                            Task {
+                                                await serverManager.restart()
+                                                // Give server time to apply new configuration
+                                                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+                                                // Force immediate status refresh
+                                                await tailscaleServeStatus.refreshStatusImmediately()
+                                            }
+                                        }
+                                    }
+
+                                    // Status when Tailscale not running
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "exclamationmark.triangle.fill")
+                                            .foregroundColor(.orange)
+                                        Text("Tailscale not running - integration will activate when Tailscale starts")
+                                            .font(.caption)
+                                            .foregroundColor(.orange)
+                                    }
+
+                                    // Info for public access - only show when Public (Internet) is selected
+                                    if tailscaleFunnelEnabled {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "info.circle.fill")
+                                                .foregroundColor(.blue)
+                                                .font(.system(size: 12))
+                                            Text("Your terminal will be accessible from the public internet")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.vertical, 4)
+                                        .padding(.horizontal, 8)
+                                        .background(Color.blue.opacity(0.1))
+                                        .cornerRadius(4)
+                                    }
                                 }
-                                .frame(height: 16)
+                                .padding(.leading, 20)
                             }
                         }
 
@@ -363,67 +411,196 @@ private struct TailscaleIntegrationSection: View {
                 } else {
                     // Tailscale is running - show full interface
                     VStack(alignment: .leading, spacing: 12) {
-                        // Tailscale Serve toggle
-                        HStack {
-                            Toggle("Enable Tailscale Serve Integration", isOn: $tailscaleServeEnabled)
+                        // Single Tailscale toggle with access mode picker
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle("Enable Tailscale Integration", isOn: $tailscaleServeEnabled)
                                 .onChange(of: tailscaleServeEnabled) { _, newValue in
-                                    logger.info("Tailscale Serve integration \(newValue ? "enabled" : "disabled")")
+                                    logger.info("Tailscale integration \(newValue ? "enabled" : "disabled")")
                                     // Restart server to apply the new setting
                                     Task {
                                         await serverManager.restart()
                                     }
                                 }
 
-                            Spacer()
-
                             if tailscaleServeEnabled {
-                                // Show status indicator - fixed height to prevent jumping
-                                HStack(spacing: 4) {
-                                    if tailscaleServeStatus.isLoading {
-                                        ProgressView()
-                                            .scaleEffect(0.7)
-                                    } else if tailscaleServeStatus.isRunning {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.green)
-                                        Text("Running")
-                                            .font(.caption)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    // Access mode picker
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Access:")
+                                            .font(.callout)
                                             .foregroundColor(.secondary)
-                                    } else if tailscaleServeStatus.isPermanentlyDisabled {
-                                        // Fallback mode - not an error, just using direct access
-                                        Image(systemName: "network")
-                                            .foregroundColor(.blue)
-                                            .help("Using direct Tailscale access (port \(serverPort))")
-                                        Text("Fallback")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    } else if let error = tailscaleServeStatus.lastError {
-                                        Image(systemName: "exclamationmark.triangle.fill")
-                                            .foregroundColor(.orange)
-                                            .help("Error: \(error)")
-                                        Text("Error")
-                                            .font(.caption)
-                                            .foregroundColor(.orange)
-                                    } else {
-                                        Image(systemName: "circle")
-                                            .foregroundColor(.gray)
-                                        Text("Starting...")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
+
+                                        Picker("", selection: $tailscaleFunnelEnabled) {
+                                            Text("Private (Tailnet only)").tag(false)
+                                            Text("Public (Internet)").tag(true)
+                                        }
+                                        .pickerStyle(.segmented)
+                                        .frame(maxWidth: 240)
+                                        .onChange(of: tailscaleFunnelEnabled) { _, newValue in
+                                            logger.warning("Tailscale access mode: \(newValue ? "PUBLIC" : "PRIVATE")")
+                                            // Force immediate UserDefaults synchronization
+                                            UserDefaults.standard.set(
+                                                newValue,
+                                                forKey: AppConstants.UserDefaultsKeys.tailscaleFunnelEnabled
+                                            )
+                                            UserDefaults.standard.synchronize()
+                                            Task {
+                                                await serverManager.restart()
+                                                // Give server time to apply new configuration
+                                                try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 seconds
+                                                // Force immediate status refresh
+                                                await tailscaleServeStatus.refreshStatusImmediately()
+                                            }
+                                        }
+                                    }
+
+                                    // Status indicator on separate line
+                                    HStack(spacing: 6) {
+                                        if tailscaleServeStatus.isLoading {
+                                            ProgressView()
+                                                .scaleEffect(0.7)
+                                            Text("Checking status...")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        } else if tailscaleServeStatus.isRunning {
+                                            // Check if there's a mismatch between desired and actual modes
+                                            let desiredIsPublic = tailscaleFunnelEnabled
+                                            let actualIsPublic = tailscaleServeStatus.actualMode == "public"
+                                            let mismatch = desiredIsPublic != actualIsPublic
+
+                                            HStack(spacing: 4) {
+                                                Image(systemName: mismatch ? "exclamationmark.triangle.fill" :
+                                                    "checkmark.circle.fill"
+                                                )
+                                                .foregroundColor(mismatch ? .orange : .green)
+
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    if mismatch {
+                                                        Text(
+                                                            "Running: \(actualIsPublic ? "Public access (Funnel)" : "Private access (Serve)")"
+                                                        )
+                                                        .font(.caption)
+                                                        .foregroundColor(.secondary)
+
+                                                        if let funnelError = tailscaleServeStatus.funnelError {
+                                                            Text("Funnel failed: \(funnelError)")
+                                                                .font(.caption2)
+                                                                .foregroundColor(.orange)
+                                                                .lineLimit(2)
+                                                        } else {
+                                                            Text(
+                                                                "Applying \(desiredIsPublic ? "Public" : "Private") mode configuration..."
+                                                            )
+                                                            .font(.caption2)
+                                                            .foregroundColor(.orange)
+                                                        }
+
+                                                        // Only show retry button if there's an actual error (not just a
+                                                        // temporary mismatch)
+                                                        if tailscaleServeStatus.lastError != nil {
+                                                            Button(action: {
+                                                                logger
+                                                                    .info(
+                                                                        "Retrying Tailscale configuration due to mismatch"
+                                                                    )
+                                                                Task {
+                                                                    // First refresh the status to see if it's resolved
+                                                                    await tailscaleServeStatus
+                                                                        .refreshStatusImmediately()
+
+                                                                    // If still mismatched after refresh, restart the
+                                                                    // server
+                                                                    if let desired = tailscaleServeStatus.desiredMode,
+                                                                       let actual = tailscaleServeStatus.actualMode,
+                                                                       desired != actual
+                                                                    {
+                                                                        logger
+                                                                            .info(
+                                                                                "Mismatch persists after refresh, restarting server"
+                                                                            )
+                                                                        await serverManager.restart()
+                                                                    }
+                                                                }
+                                                            }, label: {
+                                                                Label("Retry", systemImage: "arrow.clockwise")
+                                                                    .font(.caption2)
+                                                            })
+                                                            .buttonStyle(.link)
+                                                            .controlSize(.mini)
+                                                        }
+                                                    } else {
+                                                        Text(
+                                                            "Running: \(actualIsPublic ? "Public access (Funnel)" : "Private access (Serve)")"
+                                                        )
+                                                        .font(.caption)
+                                                        .foregroundColor(.secondary)
+                                                    }
+                                                }
+                                            }
+                                        } else if tailscaleServeStatus.isPermanentlyDisabled {
+                                            Image(systemName: "network")
+                                                .foregroundColor(.blue)
+                                            Text("Using direct Tailscale access on port \(serverPort)")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        } else if let error = tailscaleServeStatus.lastError {
+                                            Image(systemName: "exclamationmark.triangle.fill")
+                                                .foregroundColor(.orange)
+                                            Text("Error: \(error)")
+                                                .font(.caption)
+                                                .foregroundColor(.orange)
+                                                .lineLimit(2)
+                                        } else {
+                                            Image(systemName: "circle")
+                                                .foregroundColor(.gray)
+                                            Text("Starting...")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
+
+                                    // Info for public access - only show when Public (Internet) is selected
+                                    if tailscaleFunnelEnabled {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: "info.circle.fill")
+                                                .foregroundColor(.blue)
+                                                .font(.system(size: 12))
+                                            Text("Your terminal will be accessible from the public internet")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        .padding(.vertical, 4)
+                                        .padding(.horizontal, 8)
+                                        .background(Color.blue.opacity(0.1))
+                                        .cornerRadius(4)
                                     }
                                 }
-                                .frame(height: 16) // Fixed height prevents UI jumping
+                                .padding(.leading, 20)
                             }
                         }
 
                         // Show dashboard URL when running
                         if let hostname = tailscaleService.tailscaleHostname {
+                            // Determine if we should show HTTPS URL
+                            // Optimistically show HTTPS when Tailscale is enabled, even if still configuring
+                            // Both Private and Public modes use HTTPS once Serve is running
+                            let useHTTPS = tailscaleServeEnabled &&
+                                (tailscaleServeStatus.isRunning ||
+                                    // Show HTTPS during startup/configuration phase
+                                    tailscaleServeStatus.lastError?.contains("starting up") == true ||
+                                    // Or if modes match (indicating configuration is in progress)
+                                    (tailscaleServeStatus.desiredMode != nil &&
+                                        tailscaleServeStatus.desiredMode == tailscaleServeStatus.actualMode
+                                    )
+                                )
+
                             InlineClickableURLView(
                                 label: "Access VibeTunnel at:",
                                 url: TailscaleURLHelper.constructURL(
                                     hostname: hostname,
                                     port: serverPort,
-                                    isTailscaleServeEnabled: tailscaleServeEnabled,
-                                    isTailscaleServeRunning: tailscaleServeStatus.isRunning
+                                    isTailscaleServeEnabled: useHTTPS,
+                                    isTailscaleServeRunning: useHTTPS
                                 )?.absoluteString ?? ""
                             )
 
@@ -438,43 +615,6 @@ private struct TailscaleIntegrationSection: View {
                                     )
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            // Show status details
-                            if tailscaleServeEnabled {
-                                if tailscaleServeStatus.isPermanentlyDisabled {
-                                    // Show fallback mode info
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "info.circle.fill")
-                                            .foregroundColor(.blue)
-                                            .font(.system(size: 12))
-                                        Text(
-                                            "Tailscale Serve requires admin permissions. Using direct access on port \(serverPort)"
-                                        )
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .lineLimit(2)
-                                    }
-                                    .padding(.vertical, 4)
-                                    .padding(.horizontal, 8)
-                                    .background(Color.blue.opacity(0.1))
-                                    .cornerRadius(4)
-                                } else if let error = tailscaleServeStatus.lastError {
-                                    // Show actual errors
-                                    HStack(spacing: 6) {
-                                        Image(systemName: "exclamationmark.triangle.fill")
-                                            .foregroundColor(.orange)
-                                            .font(.system(size: 12))
-                                        Text("Error: \(error)")
-                                            .font(.caption)
-                                            .foregroundColor(.orange)
-                                            .lineLimit(2)
-                                    }
-                                    .padding(.vertical, 4)
-                                    .padding(.horizontal, 8)
-                                    .background(Color.orange.opacity(0.1))
-                                    .cornerRadius(4)
                                 }
                             }
 
