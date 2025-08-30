@@ -140,6 +140,7 @@ final class StatusBarMenuManager: NSObject {
             .environment(serverManager)
             .environment(ngrokService)
             .environment(tailscaleService)
+            .environment(TailscaleServeStatusService.shared)
             .environment(terminalLauncher)
             .environment(sessionService)
             .environment(gitRepositoryMonitor)
