@@ -74,7 +74,8 @@ class BufferWebSocketClient: NSObject {
         else {
             return nil
         }
-        return serverConfig.baseURL
+        // Use connectionURL to get the best URL (HTTPS when available)
+        return serverConfig.connectionURL()
     }
 
     init(webSocketFactory: WebSocketFactory = DefaultWebSocketFactory()) {
